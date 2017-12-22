@@ -27,18 +27,36 @@ class OracleConnection(object):
         print 'open_cursor'
         self.__cursor = self.__conn.cursor()
 
+    def execute_query(self, query, params={}, open_cursor=False, close_cursor=False):
+        print 'execute_query'
+
+        if open_cursor:
+            self.open_cursor()
+
+        if params:
+            self.__cursor.execute(query, params)
+        else:
+            self.__cursor.execute(query)
+
+        result = self.__cursor.fetchall()
+
+        if close_cursor:
+            self.close_cursor()
+
+        return result
+
     def execute(self, query, params, auto_commit=False, open_cursor=False, close_cursor=False):
         print 'execute'
 
         if open_cursor:
             self.open_cursor()
 
-        if isinstance(params, tuple):
-            print 'execute single'
+        if isinstance(params, tuple) or isinstance(params, dict):
+            print 'execute insert/update/delete'
             self.__cursor.execute(query, params)
 
         if isinstance(params, list):
-            print 'execute many'
+            print 'execute many insert'
             self.__cursor.executemany(query, params)
 
         if auto_commit:
