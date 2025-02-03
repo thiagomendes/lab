@@ -1,0 +1,11 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: meu-route
+spec:
+  to:
+    kind: Service
+    name: meu-servico
+  port:
+    targetPort: 80
+  wildcardPolicy: None
