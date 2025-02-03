@@ -1,57 +1,75 @@
 # Passo a Passo de Migração de Service no Kubernetes de Local para External
 
-## 1. Criar o Deployment com Nginx (Local)
-
-Crie um Deployment chamado `nginx-deployment` utilizando a imagem `nginx:latest`:
-
+## 1️⃣ Limpar o Ambiente
 ```bash
-kubectl create deployment nginx-deployment --image=nginx:latest
+kubectl delete ingress meu-ingress --ignore-not-found
+kubectl delete service meu-servico --ignore-not-found
+kubectl delete deployment nginx-deployment --ignore-not-found
 ```
 
-## 2. Criar o Service Local (ClusterIP)
-
-Exponha o Deployment criando um Service ClusterIP chamado `meu-servico` na porta 80:
-
+## 2️⃣ Criar o Deployment e Service Local
 ```bash
+kubectl create deployment nginx-deployment --image=nginx:latest
 kubectl expose deployment nginx-deployment --name=meu-servico --port=80
 ```
 
-## 3. Testar o Service Local com Curl
-
-Utilize um container que contenha o `curl` para testar o acesso ao Service:
-
+## 3️⃣ Testar o Service Local (Acesso Direto no Cluster)
 ```bash
-kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- curl -v http://meu-servico
+kubectl run -it --rm curlpod --image=curlimages/curl --restart=Never -- curl -v http://meu-servico
 ```
 
-**Observação:**  
-Nesta etapa, a requisição é feita para o Service que direciona para o Nginx local, portanto, a resposta deverá ser a página padrão do Nginx.
+## 4️⃣ Criar o Ingress
+Criar o arquivo **`ingress.yaml`**:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: meu-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: meu-servico
+            port:
+              number: 80
+```
 
-## 4. Remover o Service Local
+Aplicar o Ingress:
+```bash
+kubectl apply -f ingress.yaml
+```
 
-Exclua o Service `meu-servico`:
+## 5️⃣ Obter o IP do Service do Ingress Controller
+### Windows (PowerShell)
+```powershell
+$INGRESS_IP = kubectl get svc -n ingress-nginx ingress-nginx-controller --output=jsonpath="{.spec.clusterIP}"
+Write-Output $INGRESS_IP
+```
+### Linux/macOS
+```bash
+INGRESS_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.spec.clusterIP}')
+echo $INGRESS_IP
+```
 
+## 6️⃣ Testar o acesso ao Ingress (apontando para o serviço local)
+```bash
+kubectl run -it --rm busybox --image=busybox --restart=Never -- wget -qO- --header="Host: meu-servico" http://$INGRESS_IP
+```
+
+## 7️⃣ Migrar o Serviço para ExternalName
 ```bash
 kubectl delete service meu-servico
-```
-
-## 5. Criar o Service Externo (ExternalName) Apontando para example.com
-
-Crie um novo Service chamado `meu-servico` do tipo `ExternalName` que aponta para `example.com` na porta 80:
-
-```bash
 kubectl create service externalname meu-servico --external-name=example.com --tcp=80:80
 ```
 
-## 6. Testar o Service Externo com Curl (Ajustando o Cabeçalho Host)
-
-Utilize um container com `curl` para testar o acesso ao novo Service. Como o Service do tipo `ExternalName` apenas resolve para o domínio externo, é necessário ajustar o cabeçalho `Host` para que o destino aceite a requisição:
-
+## 8️⃣ Testar Acesso ao Serviço Externo via Ingress
 ```bash
-kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- curl -v http://meu-servico -H "Host: example.com"
+kubectl run -it --rm busybox --image=busybox --restart=Never -- wget -qO- --header="Host: example.com" http://$INGRESS_IP
 ```
-
-### Explicação:
-
-- Na etapa 3, o `curl` é executado sem customizar o header `Host`, pois o Service local (`ClusterIP`) encaminha a requisição para o Deployment do Nginx, que responde normalmente.
-- Na etapa 6, o header `Host` é ajustado para `example.com` para que o servidor remoto aceite a requisição, já que a resolução DNS do Service do tipo `ExternalName` retorna `example.com`.
